@@ -5,13 +5,17 @@
 // long-lived Cloudflare API token never leaves the server.
 //
 // Environment variables (Vercel → Project → Settings → Environment Variables):
-//   SUPABASE_URL                 https://<project>.supabase.co
-//   SUPABASE_PUBLISHABLE_KEY     sb_publishable_... (or legacy anon key)
+//   SUPABASE_URL                 https://<project>.supabase.co (defaults to the CastKelas project)
+//   SUPABASE_PUBLISHABLE_KEY     sb_publishable_... (defaults to the CastKelas project)
 //   CLOUDFLARE_TURN_KEY_ID       optional, enables TURN relay
 //   CLOUDFLARE_TURN_API_TOKEN    optional, enables TURN relay
 //   APK_URL                      optional, download link for the Android app
 
-const STUN_SERVERS = [{ urls: "stun:stun.cloudflare.com:3478" }, { urls: "stun:stun.l.google.com:19302" }];
+// Publishable (client-side) credentials: safe to ship, they end up in the browser anyway.
+const DEFAULT_SUPABASE_URL = "https://xvzeoqiaeltrmqlogcei.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_vh5Flof2996Y8eyFBya4UA_e0fgBW4x";
+
+const STUN_SERVERS =[{ urls: "stun:stun.cloudflare.com:3478" }, { urls: "stun:stun.l.google.com:19302" }];
 const TURN_TTL_SECONDS = 12 * 60 * 60;
 
 async function cloudflareTurn() {
@@ -48,8 +52,8 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.status(200).json({
-    supabaseUrl: process.env.SUPABASE_URL ?? null,
-    supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? null,
+    supabaseUrl: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
+    supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY || DEFAULT_SUPABASE_KEY,
     iceServers: [...STUN_SERVERS, ...turn],
     apkUrl: process.env.APK_URL ?? null,
   });
