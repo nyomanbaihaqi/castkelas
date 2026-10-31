@@ -6,3 +6,4 @@ dist
 .env.*
 *.tsbuildinfo
 !.env.example
+apk/
