@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CastKelas</string>
+
+    <string name="title_idle">Siap cast ke laptop</string>
+    <string name="detail_idle">Di laptop buka CastKelas, pilih Mode QR, lalu scan QR yang muncul.</string>
+    <string name="title_connecting">Menyambung…</string>
+    <string name="title_streaming">Sedang cast</string>
+    <string name="detail_streaming">Layar dan suara tablet tampil di laptop. Silakan buka aplikasi lain untuk mengajar.</string>
+    <string name="title_reconnecting">Menyambung ulang…</string>
+    <string name="title_error">Gagal menyambung</string>
+
+    <string name="scan_button">Scan QR</string>
+    <string name="stop_button">Berhenti cast</string>
+    <string name="scan_prompt">Arahkan kamera ke QR di layar laptop</string>
+    <string name="tips">Tablet dan laptop boleh beda WiFi, asal sama-sama ada internet. Suara dari YouTube, video, dan game ikut terkirim; sebagian aplikasi memblokir suaranya direkam.</string>
+
+    <string name="status_loading_config">Mengambil pengaturan…</string>
+    <string name="status_finding_laptop">Mencari laptop…</string>
+    <string name="status_connecting">Laptop ditemukan, menyambung…</string>
+    <string name="status_streaming">Sedang cast ke laptop</string>
+    <string name="status_reconnecting">Sinyal terganggu, menyambung ulang…</string>
+    <string name="status_laptop_stopped">Laptop menghentikan cast.</string>
+    <string name="status_stopped">Cast dihentikan.</string>
+
+    <string name="error_not_castkelas_qr">QR ini bukan dari CastKelas.</string>
+    <string name="error_capture_denied">Izin merekam layar ditolak. Scan ulang lalu ketuk Mulai.</string>
+    <string name="error_config">Tidak bisa menghubungi server CastKelas. Cek internet tablet. (%1$s)</string>
+    <string name="error_capture">Gagal merekam layar. (%1$s)</string>
+    <string name="error_busy">Laptop sedang menerima cast dari perangkat lain.</string>
+    <string name="warn_no_audio_permission">Tanpa izin mikrofon, suara tablet tidak bisa dikirim. Video tetap jalan.</string>
+
+    <string name="notif_channel">Status cast</string>
+    <string name="notif_preparing">Menyiapkan cast…</string>
+    <string name="action_stop">Berhenti</string>
+</resources>

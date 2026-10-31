@@ -2,39 +2,63 @@
 
 Mirror layar tablet/HP **Android** ke laptop untuk mengajar, langsung dari browser. Suara tablet ikut keluar di laptop.
 
-## Fitur (Fase 1)
+## Dua mode koneksi
 
-- **Mode USB**: colok kabel, klik *Sambungkan via USB*. Tablet tidak perlu install aplikasi apa pun.
-- **Suara di laptop**: laptop jadi speaker (Android 11+). Opsi *Bunyi juga di tablet* (Android 13+).
-- **Preset kualitas**: Hemat / Seimbang / Tajam, bisa diganti saat mirroring.
-- **Mode proyektor**: fullscreen bersih, kursor otomatis hilang. Shortcut `F`, keluar dengan `Esc` atau klik dua kali.
-- **Rekam sesi**: hasil MP4 (video + suara) langsung tersimpan di laptop. Shortcut `R`.
-- **Sambung ulang otomatis** kalau kabel kecabut lalu dicolok lagi.
-- **Bisa offline**: setelah pernah dibuka sekali, web tetap jalan tanpa internet (mode USB).
+| | Mode USB | Mode QR |
+|---|---|---|
+| Kabel | Ya | Tidak |
+| Aplikasi di tablet | Tidak perlu | APK CastKelas |
+| Internet | Tidak perlu | Perlu (laptop & tablet), boleh beda jaringan |
+| Suara | Android 11+ | Android 10+ |
 
-Fase 2 (berikutnya): **Mode QR** wireless + aplikasi Android pendamping.
+**Fitur bersama:** preset kualitas (Hemat / Seimbang / Tajam), mode proyektor fullscreen (`F`), rekam sesi ke MP4 dengan suara (`R`), mute (`M`), sambung ulang otomatis.
+
+Mode QR memakai WebRTC. Kalau WiFi sekolah memblokir koneksi antar-perangkat (client isolation), koneksi otomatis lewat server relay TURN, jadi tetap tersambung.
 
 ## Syarat
 
-- Laptop: **Google Chrome** atau **Microsoft Edge** (butuh WebUSB + WebCodecs).
-- Tablet: Android 5+ untuk video, Android 11+ untuk suara. *USB debugging* aktif.
-- Tidak ada program lain yang memakai adb (Android Studio, scrcpy, `adb server`). Kalau ada, jalankan `adb kill-server`.
+- Laptop: **Google Chrome** atau **Microsoft Edge**.
+- Mode USB: *USB debugging* aktif di tablet, dan tidak ada program lain yang memakai adb (`adb kill-server`).
+- Mode QR: install APK CastKelas di tablet (lihat *Releases* repo ini).
+
+## Struktur
+
+```
+src/            Web app (Vite + React)
+  usb/          Mode USB: WebUSB → ADB → scrcpy 3.3.3
+  wireless/     Mode QR: penerima WebRTC + sinyal Supabase Realtime
+api/config.js   Vercel Function: config Supabase + kredensial TURN
+android/        Aplikasi Android pendamping (Kotlin)
+```
+
+## Setup Mode QR (sekali saja)
+
+1. **Supabase** (akun nyomanbaihaqi@gmail.com): buat project, Free plan, region Singapore. Tidak perlu tabel. Pastikan *Realtime → Settings → Allow public access* aktif.
+2. **Cloudflare TURN** (opsional tapi disarankan untuk WiFi sekolah): dash.cloudflare.com → *Realtime → TURN Server* → buat key. Free 1 TB/bulan.
+3. **Environment variables di Vercel** (Project → Settings → Environment Variables):
+
+   | Nama | Isi |
+   |---|---|
+   | `SUPABASE_URL` | `https://<project>.supabase.co` |
+   | `SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` (atau anon key) |
+   | `CLOUDFLARE_TURN_KEY_ID` | Turn Token ID |
+   | `CLOUDFLARE_TURN_API_TOKEN` | API Token TURN |
+   | `APK_URL` | (opsional) link download APK kalau repo private |
+
+   Redeploy setelah mengisi.
+
+4. **Signing APK**: GitHub Actions membangun APK setiap ada perubahan di `android/`. Rilis APK hanya dipublikasikan kalau secret berikut ada di repo (Settings → Secrets → Actions): `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keystore jangan sampai hilang, karena tanpa keystore yang sama, aplikasi tidak bisa di-update tanpa uninstall.
 
 ## Development
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173
-npm run build     # output ke dist/
-npm run preview   # tes hasil build (service worker offline aktif di sini)
+npm run dev       # http://localhost:5173 (Mode QR: isi .env dari .env.example)
+npm run build
+npm run preview   # tes hasil build, termasuk service worker offline
 ```
 
-## Deploy ke Vercel
+## Lisensi pihak ketiga
 
-Import repo ini di Vercel. Framework terdeteksi otomatis sebagai **Vite** (build `npm run build`, output `dist`). Tidak ada environment variable yang dibutuhkan di Fase 1.
-
-## Cara kerja
-
-Browser laptop bicara langsung ke tablet lewat protokol ADB via WebUSB ([Tango](https://github.com/yume-chan/ya-webadb)), lalu menjalankan [scrcpy](https://github.com/Genymobile/scrcpy) server v3.3.3 di tablet. Video H.264 di-decode dengan WebCodecs ke canvas, audio PCM diputar lewat Web Audio.
-
-`public/scrcpy-server-v3.3.3` adalah binary resmi dari rilis scrcpy (Apache-2.0), SHA-256 `7e70323ba7f259649dd4acce97ac4fefbae8102b2c6d91e2e7be613fd5354be0`.
+- `public/scrcpy-server-v3.3.3`: binary resmi [scrcpy](https://github.com/Genymobile/scrcpy) (Apache-2.0), SHA-256 `7e70323ba7f259649dd4acce97ac4fefbae8102b2c6d91e2e7be613fd5354be0`.
+- [Tango ADB](https://github.com/yume-chan/ya-webadb) (MIT), [WebRTC SDK LiveKit](https://github.com/webrtc-sdk/android) (BSD), [ZXing Android Embedded](https://github.com/journeyapps/zxing-android-embedded) (Apache-2.0).

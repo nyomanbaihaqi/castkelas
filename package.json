@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "@yume-chan/adb": "^2.6.4",
     "@yume-chan/adb-credential-web": "^2.1.0",
     "@yume-chan/adb-daemon-webusb": "^2.3.2",
@@ -16,11 +17,13 @@
     "@yume-chan/scrcpy": "^2.3.0",
     "@yume-chan/scrcpy-decoder-webcodecs": "^2.5.3",
     "@yume-chan/stream-extra": "^2.6.1",
+    "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/w3c-web-usb": "^1.0.14",

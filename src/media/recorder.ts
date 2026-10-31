@@ -10,19 +10,28 @@ function pickMimeType(): string {
   return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 }
 
-/** Records the mirrored canvas plus the tablet audio into a downloadable file. */
+/** Records the mirrored screen plus the tablet audio into a downloadable file. */
 export class SessionRecorder {
   #recorder: MediaRecorder;
   #chunks: Blob[] = [];
-  #stream: MediaStream;
+  #ownedTracks: MediaStreamTrack[];
   readonly startedAt = Date.now();
 
-  constructor(canvas: HTMLCanvasElement, audio: MediaStream | null) {
-    this.#stream = canvas.captureStream(30);
-    audio?.getAudioTracks().forEach((t) => this.#stream.addTrack(t));
+  /** USB mode: the picture lives in a canvas, the sound in the PCM player. */
+  static fromCanvas(canvas: HTMLCanvasElement, audio: MediaStream | null): SessionRecorder {
+    const stream = canvas.captureStream(30);
+    audio?.getAudioTracks().forEach((t) => stream.addTrack(t));
+    return new SessionRecorder(stream, stream.getVideoTracks());
+  }
 
+  /**
+   * @param ownedTracks Tracks created just for this recording, stopped when it
+   * ends. Tracks owned by the player/peer connection must not be stopped.
+   */
+  constructor(stream: MediaStream, ownedTracks: MediaStreamTrack[] = []) {
+    this.#ownedTracks = ownedTracks;
     const mimeType = pickMimeType();
-    this.#recorder = new MediaRecorder(this.#stream, {
+    this.#recorder = new MediaRecorder(stream, {
       mimeType: mimeType || undefined,
       videoBitsPerSecond: 6_000_000,
       audioBitsPerSecond: 128_000,
@@ -36,8 +45,7 @@ export class SessionRecorder {
   stop(): Promise<{ blob: Blob; extension: string }> {
     return new Promise((resolve) => {
       this.#recorder.onstop = () => {
-        // Only stop the canvas track; audio tracks belong to the player.
-        this.#stream.getVideoTracks().forEach((t) => t.stop());
+        this.#ownedTracks.forEach((t) => t.stop());
         const type = this.#recorder.mimeType || "video/webm";
         resolve({
           blob: new Blob(this.#chunks, { type }),

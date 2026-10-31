@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+.idea/
+*.p12
+keystore.local.txt

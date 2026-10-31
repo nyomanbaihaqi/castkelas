@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdbDaemonWebUsbDevice } from "@yume-chan/adb-daemon-webusb";
 import { Home } from "./components/Home";
 import { PowerIcon, ProjectorIcon, RecordIcon, SpeakerIcon, StopIcon } from "./components/Icons";
+import { QrPanel } from "./components/QrPanel";
 import { PcmPlayer } from "./media/pcmPlayer";
 import { SessionRecorder, downloadBlob, recordingFilename } from "./media/recorder";
 import { QUALITY_PRESETS, getPreset, type QualityId } from "./quality";
@@ -12,18 +13,23 @@ import {
   getKnownUsbDevices,
   isUsbSupported,
   pickUsbDevice,
-  type AudioState,
   type SessionStatus,
   type StreamSettings,
 } from "./usb/session";
+import { loadWirelessConfig, type WirelessConfig } from "./wireless/config";
+import { WirelessReceiver, type WirelessStatus } from "./wireless/receiver";
 
-const STATUS_TEXT: Record<SessionStatus, string> = {
-  connecting: "Membuka koneksi USB…",
+type ViewStatus = SessionStatus | WirelessStatus;
+type Mode = "usb" | "wireless";
+
+const STATUS_TEXT: Record<ViewStatus, string> = {
+  connecting: "Menyambung…",
   authorizing: "Cek tablet: ketuk “Izinkan” pada pop-up USB debugging",
   starting: "Memulai mirroring…",
   streaming: "Tersambung",
   reconnecting: "Menyambung ulang…",
   disconnected: "Terputus",
+  waiting: "Menunggu tablet scan QR",
 };
 
 function formatDuration(ms: number): string {
@@ -37,20 +43,25 @@ function toStreamSettings(s: UserSettings): StreamSettings {
 }
 
 export default function App() {
-  const supported = isUsbSupported();
+  const usbSupported = isUsbSupported();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<PcmPlayer | null>(null);
   const recorderRef = useRef<SessionRecorder | null>(null);
 
   const [settings, setSettings] = useState<UserSettings>(loadSettings);
-  const [session, setSession] = useState<UsbMirrorSession | null>(null);
-  const [status, setStatus] = useState<SessionStatus>("connecting");
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [usbSession, setUsbSession] = useState<UsbMirrorSession | null>(null);
+  const [receiver, setReceiver] = useState<WirelessReceiver | null>(null);
+  const [wirelessConfig, setWirelessConfig] = useState<WirelessConfig | null | undefined>(undefined);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [status, setStatus] = useState<ViewStatus>("connecting");
   const [statusMessage, setStatusMessage] = useState<string | undefined>();
-  const [audio, setAudio] = useState<AudioState>("pending");
+  const [deviceName, setDeviceName] = useState("Tablet");
+  const [audio, setAudio] = useState<"pending" | "on" | "unavailable">("pending");
   const [muted, setMuted] = useState(false);
-  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
-  const [fps, setFps] = useState(0);
+  const [stats, setStats] = useState<{ fps: number; width: number; height: number; relayed: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [knownDevices, setKnownDevices] = useState<AdbDaemonWebUsbDevice[]>([]);
@@ -61,28 +72,46 @@ export default function App() {
   const [showExitHint, setShowExitHint] = useState(false);
 
   const refreshKnownDevices = useCallback(() => {
-    if (supported) void getKnownUsbDevices().then(setKnownDevices);
-  }, [supported]);
+    if (usbSupported) void getKnownUsbDevices().then(setKnownDevices);
+  }, [usbSupported]);
 
   useEffect(refreshKnownDevices, [refreshKnownDevices]);
-
+  useEffect(() => void loadWirelessConfig().then(setWirelessConfig), []);
   useEffect(() => saveSettings(settings), [settings]);
 
+  // Speaker volume (recordings are unaffected in USB mode).
   useEffect(() => {
     playerRef.current?.setVolume(muted ? 0 : settings.volume);
-  }, [muted, settings.volume]);
+    if (videoRef.current) {
+      videoRef.current.volume = settings.volume;
+      videoRef.current.muted = muted;
+    }
+  }, [muted, settings.volume, remoteStream]);
 
-  // FPS counter
   useEffect(() => {
-    if (!session) return;
-    let last = session.framesRendered;
-    const id = setInterval(() => {
-      const current = session.framesRendered;
-      setFps(Math.max(0, current - last));
-      last = current;
-    }, 1000);
-    return () => clearInterval(id);
-  }, [session]);
+    const video = videoRef.current;
+    if (!video || video.srcObject === remoteStream) return;
+    video.srcObject = remoteStream;
+    if (remoteStream) void video.play().catch(() => {});
+  }, [remoteStream]);
+
+  // Stats: fps + resolution
+  useEffect(() => {
+    if (usbSession) {
+      let last = usbSession.framesRendered;
+      const id = setInterval(() => {
+        const current = usbSession.framesRendered;
+        const canvas = canvasRef.current;
+        setStats({ fps: Math.max(0, current - last), width: canvas?.width ?? 0, height: canvas?.height ?? 0, relayed: false });
+        last = current;
+      }, 1000);
+      return () => clearInterval(id);
+    }
+    if (receiver) {
+      const id = setInterval(() => void receiver.getStats().then(setStats), 1000);
+      return () => clearInterval(id);
+    }
+  }, [usbSession, receiver]);
 
   // Recording timer
   useEffect(() => {
@@ -121,8 +150,25 @@ export default function App() {
     };
   }, [fullscreen]);
 
-  const connect = async (device?: AdbDaemonWebUsbDevice) => {
+  const stopRecording = useCallback(async () => {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    recorderRef.current = null;
+    setRecordingSince(null);
+    const { blob, extension } = await recorder.stop();
+    downloadBlob(blob, recordingFilename(extension));
+  }, []);
+
+  const resetView = () => {
+    setStats(null);
+    setStatusMessage(undefined);
+    setAudio("pending");
+    setDeviceName("Tablet");
     setError(null);
+  };
+
+  const connectUsb = async (device?: AdbDaemonWebUsbDevice) => {
+    resetView();
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -141,23 +187,25 @@ export default function App() {
     if (!picked) return;
 
     setBusy(true);
-    setVideoSize(null);
     setStatus("connecting");
-    setStatusMessage(undefined);
+    setDeviceName(picked.name || "Tablet");
     const next = new UsbMirrorSession(picked, canvas, player, {
       onStatus: (s, message) => {
         setStatus(s);
         setStatusMessage(message);
+        if (s === "streaming") setDeviceName(next.deviceName);
       },
       onAudio: setAudio,
-      onVideoSize: (width, height) => setVideoSize({ width, height }),
+      onVideoSize: () => {},
     });
-    setSession(next);
+    setMode("usb");
+    setUsbSession(next);
     try {
       await next.start(toStreamSettings(settings));
     } catch (e) {
       await next.close();
-      setSession(null);
+      setUsbSession(null);
+      setMode(null);
       setError(describeError(e));
     } finally {
       setBusy(false);
@@ -165,26 +213,62 @@ export default function App() {
     }
   };
 
-  const stopRecording = useCallback(async () => {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    recorderRef.current = null;
-    setRecordingSince(null);
-    const { blob, extension } = await recorder.stop();
-    downloadBlob(blob, recordingFilename(extension));
-  }, []);
+  const startWireless = async () => {
+    if (!wirelessConfig) return;
+    resetView();
+    setBusy(true);
+    setStatus("connecting");
+    let previousStream: MediaStream | null = null;
+    const next = new WirelessReceiver(wirelessConfig, getPreset(settings.quality), {
+      onStatus: (s, message) => {
+        setStatus(s);
+        setStatusMessage(message);
+        if (s === "waiting") {
+          setRemoteStream(null);
+          previousStream = null;
+        }
+      },
+      onStream: (stream) => {
+        if (stream !== previousStream) {
+          // A reconnect brings a new stream; close the old recording cleanly.
+          void stopRecording();
+          previousStream = stream;
+        }
+        setRemoteStream(stream);
+      },
+      onDevice: setDeviceName,
+      onAudio: setAudio,
+    });
+    setMode("wireless");
+    setReceiver(next);
+    try {
+      await next.start();
+    } catch (e) {
+      await next.close().catch(() => {});
+      setReceiver(null);
+      setMode(null);
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startRecording = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || recorderRef.current) return;
+    if (recorderRef.current) return;
     try {
-      recorderRef.current = new SessionRecorder(canvas, playerRef.current?.recordStream ?? null);
+      if (mode === "usb" && canvasRef.current) {
+        recorderRef.current = SessionRecorder.fromCanvas(canvasRef.current, playerRef.current?.recordStream ?? null);
+      } else if (mode === "wireless" && remoteStream) {
+        recorderRef.current = new SessionRecorder(new MediaStream(remoteStream.getTracks()));
+      } else {
+        return;
+      }
       setRecordingSince(Date.now());
       setNow(Date.now());
     } catch (e) {
       setStatusMessage(`Gagal mulai rekam: ${describeError(e)}`);
     }
-  }, []);
+  }, [mode, remoteStream]);
 
   const toggleRecording = useCallback(() => {
     if (recorderRef.current) void stopRecording();
@@ -194,16 +278,20 @@ export default function App() {
   const disconnect = async () => {
     await stopRecording();
     if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    await session?.close();
-    setSession(null);
+    await usbSession?.close();
+    await receiver?.close().catch(() => {});
+    setUsbSession(null);
+    setReceiver(null);
+    setRemoteStream(null);
+    setMode(null);
     refreshKnownDevices();
   };
 
-  const reconnect = async () => {
-    const serial = session?.serial;
+  const reconnectUsb = async () => {
+    const serial = usbSession?.serial;
     await disconnect();
     const device = (await getKnownUsbDevices()).find((d) => d.serial === serial);
-    void connect(device);
+    void connectUsb(device);
   };
 
   const toggleProjector = useCallback(() => {
@@ -211,20 +299,22 @@ export default function App() {
     else void stageRef.current?.requestFullscreen();
   }, []);
 
-  const updateSettings = (patch: Partial<UserSettings>, restart: boolean) => {
+  const updateSettings = (patch: Partial<UserSettings>, apply: boolean) => {
     const next = { ...settings, ...patch };
     setSettings(next);
-    if (restart && session && status === "streaming") {
-      void session.applySettings(toStreamSettings(next)).catch((e) => {
+    if (!apply || status !== "streaming") return;
+    if (usbSession) {
+      void usbSession.applySettings(toStreamSettings(next)).catch((e) => {
         setStatus("disconnected");
         setStatusMessage(describeError(e));
       });
     }
+    receiver?.setQuality(getPreset(next.quality));
   };
 
   // Keyboard shortcuts: F = projector, R = record, M = mute
   useEffect(() => {
-    if (!session) return;
+    if (!mode) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || (e.target as HTMLElement).closest("input, select, textarea")) return;
       const key = e.key.toLowerCase();
@@ -234,32 +324,34 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [session, toggleProjector, toggleRecording]);
+  }, [mode, toggleProjector, toggleRecording]);
 
   const streaming = status === "streaming";
   const recording = recordingSince !== null;
   const recordedFor = recordingSince === null ? "" : formatDuration(now - recordingSince);
+  const showQr = mode === "wireless" && receiver && status === "waiting";
 
   return (
-    <div className={`app ${session ? "has-session" : ""}`}>
+    <div className={`app ${mode ? "has-session" : ""}`}>
       <header className="topbar">
         <div className="brand">
           <img src="/icon.svg" alt="" width={28} height={28} />
           <span>CastKelas</span>
         </div>
 
-        {session && (
+        {mode && (
           <div className="device-info">
             <span className={`dot dot-${status}`} />
-            <b>{session.deviceName}</b>
+            <b>{mode === "usb" ? deviceName : status === "waiting" ? "Mode QR" : deviceName}</b>
             <span className="muted">
               {STATUS_TEXT[status]}
-              {streaming && videoSize && ` · ${videoSize.width}×${videoSize.height} · ${fps} fps`}
+              {streaming && stats && stats.width > 0 && ` · ${stats.width}×${stats.height} · ${stats.fps} fps`}
+              {streaming && stats?.relayed && " · via relay"}
             </span>
           </div>
         )}
 
-        {session && (
+        {mode && (
           <nav className="controls">
             <div className="segmented" role="radiogroup" aria-label="Kualitas">
               {QUALITY_PRESETS.map((p) => (
@@ -301,15 +393,17 @@ export default function App() {
               />
             </div>
 
-            <label className="check" title="Android 13+: suara tetap bunyi di tablet selain di laptop">
-              <input
-                type="checkbox"
-                checked={settings.audioOnTablet}
-                disabled={!streaming}
-                onChange={(e) => updateSettings({ audioOnTablet: e.target.checked }, true)}
-              />
-              Bunyi juga di tablet
-            </label>
+            {mode === "usb" && (
+              <label className="check" title="Android 13+: suara tetap bunyi di tablet selain di laptop">
+                <input
+                  type="checkbox"
+                  checked={settings.audioOnTablet}
+                  disabled={!streaming}
+                  onChange={(e) => updateSettings({ audioOnTablet: e.target.checked }, true)}
+                />
+                Bunyi juga di tablet
+              </label>
+            )}
 
             <button
               className={`btn ${recording ? "btn-danger" : "btn-ghost"}`}
@@ -321,7 +415,7 @@ export default function App() {
               {recording ? `Stop ${recordedFor}` : "Rekam"}
             </button>
 
-            <button className="btn btn-ghost" disabled={!streaming} onClick={toggleProjector} title="Mode proyektor (F)">
+            <button className="btn btn-ghost" onClick={toggleProjector} title="Mode proyektor (F)">
               <ProjectorIcon />
               Proyektor
             </button>
@@ -333,35 +427,50 @@ export default function App() {
         )}
       </header>
 
-      {!session && (
+      {!mode && (
         <Home
-          supported={supported}
+          usbSupported={usbSupported}
+          wirelessConfig={wirelessConfig}
           busy={busy}
           error={error}
           knownDevices={knownDevices}
-          onConnect={(d) => void connect(d)}
+          onConnectUsb={(d) => void connectUsb(d)}
+          onStartWireless={() => void startWireless()}
         />
       )}
 
       <div
         ref={stageRef}
-        className={`stage ${session ? "" : "hidden"} ${fullscreen ? "fullscreen" : ""} ${cursorIdle ? "cursor-idle" : ""}`}
+        className={`stage ${mode ? "" : "hidden"} ${fullscreen ? "fullscreen" : ""} ${cursorIdle ? "cursor-idle" : ""}`}
         onDoubleClick={toggleProjector}
       >
-        <canvas ref={canvasRef} className={streaming ? "" : "dim"} />
+        <canvas ref={canvasRef} className={`${mode === "usb" ? "" : "hidden"} ${streaming ? "" : "dim"}`} />
+        <video
+          ref={videoRef}
+          className={`${mode === "wireless" && !showQr ? "" : "hidden"} ${streaming ? "" : "dim"}`}
+          autoPlay
+          playsInline
+        />
 
-        {session && !streaming && (
+        {showQr && receiver && <QrPanel url={receiver.joinUrl} message={statusMessage} />}
+
+        {mode && !streaming && !showQr && (
           <div className="overlay">
             {status !== "disconnected" && <div className="spinner" />}
             <p>{statusMessage ?? STATUS_TEXT[status]}</p>
             {status === "authorizing" && (
               <p className="muted small">Centang “Selalu izinkan dari komputer ini” biar besok langsung nyambung.</p>
             )}
+            {status === "connecting" && mode === "wireless" && (
+              <p className="muted small">Di tablet, ketuk “Mulai” saat diminta izin merekam layar.</p>
+            )}
             {status === "disconnected" && (
               <div className="overlay-actions">
-                <button className="btn btn-primary" onClick={() => void reconnect()}>
-                  Sambung ulang
-                </button>
+                {mode === "usb" && (
+                  <button className="btn btn-primary" onClick={() => void reconnectUsb()}>
+                    Sambung ulang
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={() => void disconnect()}>
                   Kembali
                 </button>

@@ -1,12 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { JoinPage } from "./components/JoinPage";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+  <StrictMode>{location.pathname === "/join" ? <JoinPage /> : <App />}</StrictMode>,
 );
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

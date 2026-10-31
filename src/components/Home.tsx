@@ -1,15 +1,27 @@
 import type { AdbDaemonWebUsbDevice } from "@yume-chan/adb-daemon-webusb";
+import type { WirelessConfig } from "../wireless/config";
 import { QrIcon, UsbIcon } from "./Icons";
 
 interface HomeProps {
-  supported: boolean;
+  usbSupported: boolean;
+  /** undefined = still loading, null = not configured on this deployment */
+  wirelessConfig: WirelessConfig | null | undefined;
   busy: boolean;
   error: string | null;
   knownDevices: AdbDaemonWebUsbDevice[];
-  onConnect(device?: AdbDaemonWebUsbDevice): void;
+  onConnectUsb(device?: AdbDaemonWebUsbDevice): void;
+  onStartWireless(): void;
 }
 
-export function Home({ supported, busy, error, knownDevices, onConnect }: HomeProps) {
+export function Home({
+  usbSupported,
+  wirelessConfig,
+  busy,
+  error,
+  knownDevices,
+  onConnectUsb,
+  onStartWireless,
+}: HomeProps) {
   return (
     <main className="home">
       <section className="hero">
@@ -20,9 +32,10 @@ export function Home({ supported, busy, error, knownDevices, onConnect }: HomePr
         </p>
       </section>
 
-      {!supported && (
+      {!usbSupported && (
         <div className="notice notice-warn">
-          Browser ini belum didukung. Buka CastKelas pakai <b>Google Chrome</b> atau <b>Microsoft Edge</b> di laptop.
+          Browser ini belum mendukung mode USB. Buka CastKelas pakai <b>Google Chrome</b> atau <b>Microsoft Edge</b> di
+          laptop.
         </div>
       )}
       {error && <div className="notice notice-error">{error}</div>}
@@ -35,7 +48,7 @@ export function Home({ supported, busy, error, knownDevices, onConnect }: HomePr
             </span>
             <div>
               <h2>Mode USB</h2>
-              <p>Paling stabil, latensi paling kecil. Tidak butuh internet.</p>
+              <p>Paling stabil, latensi paling kecil. Tidak butuh internet atau aplikasi di tablet.</p>
             </div>
           </div>
 
@@ -45,8 +58,8 @@ export function Home({ supported, busy, error, knownDevices, onConnect }: HomePr
                 <button
                   key={d.serial}
                   className="btn btn-primary"
-                  disabled={!supported || busy}
-                  onClick={() => onConnect(d)}
+                  disabled={!usbSupported || busy}
+                  onClick={() => onConnectUsb(d)}
                 >
                   Sambungkan {d.name || d.serial}
                 </button>
@@ -56,25 +69,35 @@ export function Home({ supported, busy, error, knownDevices, onConnect }: HomePr
 
           <button
             className={knownDevices.length > 0 ? "btn btn-ghost" : "btn btn-primary btn-lg"}
-            disabled={!supported || busy}
-            onClick={() => onConnect()}
+            disabled={!usbSupported || busy}
+            onClick={() => onConnectUsb()}
           >
             {knownDevices.length > 0 ? "Pilih perangkat lain…" : "Sambungkan via USB"}
           </button>
         </article>
 
-        <article className="mode-card mode-soon">
+        <article className="mode-card mode-primary">
           <div className="mode-head">
             <span className="mode-icon">
               <QrIcon />
             </span>
             <div>
-              <h2>
-                Mode QR <span className="badge">Segera hadir</span>
-              </h2>
-              <p>Tanpa kabel: scan QR dari aplikasi CastKelas di tablet. Tembus WiFi sekolah &amp; hotspot.</p>
+              <h2>Mode QR</h2>
+              <p>Tanpa kabel: scan QR pakai aplikasi CastKelas di tablet. Tembus WiFi sekolah &amp; hotspot.</p>
             </div>
           </div>
+          <button
+            className="btn btn-primary btn-lg"
+            disabled={!wirelessConfig || busy}
+            onClick={onStartWireless}
+          >
+            {wirelessConfig === undefined ? "Memuat…" : "Tampilkan QR"}
+          </button>
+          {wirelessConfig === null && (
+            <p className="muted small">
+              Mode QR butuh internet dan belum dikonfigurasi di server ini (Supabase). Mode USB tetap bisa dipakai.
+            </p>
+          )}
         </article>
       </section>
 

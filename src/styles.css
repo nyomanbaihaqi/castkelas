@@ -383,24 +383,33 @@ button {
   display: none;
 }
 
-.stage canvas {
+.stage canvas,
+.stage video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.stage:not(.fullscreen) canvas {
+.stage canvas.hidden,
+.stage video.hidden {
+  display: none;
+}
+
+.stage:not(.fullscreen) canvas,
+.stage:not(.fullscreen) video {
   max-width: calc(100% - 32px);
   max-height: calc(100% - 32px);
   border-radius: 8px;
 }
 
-.stage canvas.dim {
+.stage canvas.dim,
+.stage video.dim {
   opacity: 0.25;
 }
 
-.stage.fullscreen canvas {
+.stage.fullscreen canvas,
+.stage.fullscreen video {
   width: 100%;
   height: 100%;
 }
@@ -484,6 +493,84 @@ button {
   padding: 4px 10px;
   border-radius: 6px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- QR panel ---------- */
+.qr-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 24px;
+  background: var(--bg);
+  flex-wrap: wrap;
+  overflow: auto;
+}
+
+.qr-box {
+  background: #fff;
+  border-radius: 20px;
+  padding: 12px;
+  line-height: 0;
+}
+
+.qr-box canvas {
+  width: min(320px, 70vw) !important;
+  height: auto !important;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+}
+
+.qr-steps {
+  max-width: 380px;
+}
+
+.qr-steps h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.qr-steps ol {
+  padding-left: 20px;
+  line-height: 1.7;
+  margin: 0 0 16px;
+}
+
+.qr-message {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+/* ---------- Join page ---------- */
+.join {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 48px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.join h1 {
+  margin: 0;
+}
+
+.join p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.join .btn {
+  text-decoration: none;
+  width: 100%;
 }
 
 @media (max-width: 720px) {
